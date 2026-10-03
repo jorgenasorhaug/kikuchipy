@@ -44,3 +44,12 @@ docstring, for example::
 
 We import modules lazily using the specification in `PEP 562
 <https://peps.python.org/pep-0562/>`__.
+
+References
+==========
+ 
+When referring to published literature in the documentation, check if the reference is 
+included in ``doc/user/bibliography.bib``. If it is, cite the reference using the 
+corresponding BibTeX key and the Sphinx``:cite:`` role, for example 
+``:cite:`aanes2026kikuchipy``. If not, new references should be added to 
+``doc/user/bibliography.bib``.

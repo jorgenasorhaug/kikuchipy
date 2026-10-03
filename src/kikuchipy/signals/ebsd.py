@@ -79,10 +79,10 @@ from kikuchipy.pattern._pattern import (
 )
 from kikuchipy.pattern.chunk import (
     _average_neighbour_patterns, 
-    _average_non_local_neighbour_patterns,
     get_dynamic_background
 )
 from kikuchipy.pattern.chunk import fft_filter as fft_filter_chunk
+from kikuchipy.pattern._nlpar import _average_non_local_neighbour_patterns
 from kikuchipy.signals._kikuchipy_signal import KikuchipySignal2D, LazyKikuchipySignal2D
 from kikuchipy.signals.util._crystal_map import (
     _equal_phase,
@@ -1116,17 +1116,17 @@ class EBSD(KikuchipySignal2D):
             
     def average_non_local_neighbour_patterns(
         self,
-        window: Union[str, np.ndarray, da.Array, Window] = "circular",
-        window_shape: Tuple[int, ...] = (7,7),
-        sigma: np.ndarray | None = None,
+        window: str | np.ndarray | da.Array | Window[bool, ...] = "circular",
+        window_shape: tuple[int, ...] = (7,7),
+        sigma: np.ndarray | da.Array | None = None,
         lamda: int | float | None = 0.9,
         signal_mask: np.ndarray | None = None,
-        show_progressbar: Optional[bool] = None,
+        show_progressbar: bool | None = None,
         inplace: bool = True,
-        lazy_output: Optional[bool] = None,
-        dask_config_kwargs: Optional[dict] = None,
-        **kwargs
-    ) -> Union[None, EBSD, LazyEBSD]:
+        lazy_output: bool | None = None,
+        dask_config_kwargs: dict | None = None,
+        **kwargs,
+    ) -> None | EBSD | LazyEBSD:
         """Average non-local patterns within a window.
         
         The amount of averaging is weighted based on sigma and lamda.
@@ -1134,9 +1134,7 @@ class EBSD(KikuchipySignal2D):
         intensities are rescaled to fill the input patterns' data type range 
         individually.
         
-        For further details, see Patrick T. Brewick, et al.: NLPAR: Non-local 
-        smoothing for enhanced EBSD pattern indexing. Ultramicroscopy, 2019 
-        200:50–61, doi: https://doi.org/10.1016/j.ultramic.2019.02.013.
+        For further details, see :cite:`brewick2019nlpar`.
 
         Parameters
         ----------
@@ -1145,7 +1143,7 @@ class EBSD(KikuchipySignal2D):
             listed in :func:`scipy.signal.windows.get_window`, in
             addition to a ``circular`` window (default) filled with
             ones in which corner coefficients are set to zero. See 
-            :class:`~kikuchipy.signals.ebsd.average_neighbour_patterns` 
+            :func:`~kikuchipy.signals.ebsd.average_neighbour_patterns` 
             for details.
         window_shape
             Shape of averaging window. Not used if a custom window or
@@ -1153,35 +1151,37 @@ class EBSD(KikuchipySignal2D):
             This can be either 1D or 2D, and can be asymmetrical.
             Default is ``(7, 7)``.
         sigma
-            Standard deviation of the signal noise.
+            Standard deviation of the signal noise. Default is ``None``.
         lamda
             Parameter controlling the averaging weight decay. If None, 
             an optimised value will be estimated using pyebsdindex' 
-            implementation.
+            implementation. Default is ``0.9``.
         signal_mask
             A boolean mask equal to the experimental patterns' detector/
             signal shape, where only pixels equal to ``False`` are averaged.
-            If not given, all pixels are used.
+            If not given, all pixels are used. Default is ``None``.
         show_progressbar
             Whether to show a progressbar. If not given, the value of
             :obj:`hyperspy.api.preferences.General.show_progressbar`
-            is used.
+            is used. Default is ``None``.
         inplace
             Whether to operate on the current signal or return a new
             one. Default is ``True``.
         lazy_output
             Whether the returned signal is lazy. If not given this
             follows from the current signal. Can only be ``True`` if
-            ``inplace=False``.
+            ``inplace=False``. Default is ``None``.
         dask_config_kwargs
             Keyword arguments passed to the :mod:`dask.config`
-            ``method``. For example, to adjust the number of 
-            workers locally, pass
-            ``dask_config_kwargs=dict(num_workers=4)``.
+            when computing the average patterns. For example, to adjust 
+            the number of workers locally, pass
+            ``dask_config_kwargs=dict(num_workers=4)``. Default is 
+            ``None``.
         **kwargs
             Keyword arguments passed to the available window type listed
             in :func:`~scipy.signal.windows.get_window`. If not given,
-            the default values of that particular window are used.
+            the default values of that particular window are used. 
+            Default is ``None``.
 
         Returns
         -------
@@ -1189,7 +1189,6 @@ class EBSD(KikuchipySignal2D):
             Averaged signal, returned if ``inplace=False``. Whether it
             is lazy is determined from ``lazy_output``.
         """
-        from kikuchipy.pattern.chunk import _estimate_sigma_nlpar
         
         if lazy_output and inplace:
             raise ValueError("`lazy_output=True` requires `inplace=False`")
@@ -1203,9 +1202,10 @@ class EBSD(KikuchipySignal2D):
                 return
 
         if isinstance(window, Window) and window.is_valid:
-            search_window = copy.copy(window > 0)
+            search_window = copy.copy(window)
         else:
             search_window = Window(window=window, shape=window_shape, **kwargs)
+        search_window = search_window.astype(bool)
         
         nav_shape = self._navigation_shape_rc
         window_shape = search_window.shape
@@ -1239,6 +1239,7 @@ class EBSD(KikuchipySignal2D):
             signal_mask = np.zeros(self._signal_shape_rc, bool)
         
         if sigma is None:
+            from kikuchipy.pattern._nlpar import _estimate_sigma_nlpar
             sigma = _estimate_sigma_nlpar(
                 patterns = self.data,
                 signal_mask = signal_mask
@@ -1256,7 +1257,7 @@ class EBSD(KikuchipySignal2D):
             
         if lamda is None:
             verify_dependency_or_raise("pyebsdindex", "Lamda optimisation")
-            from kikuchipy.pattern.chunk import _optimise_lambda
+            from kikuchipy.pattern._nlpar import _optimise_lambda
             
             lamda = np.median(
                 _optimise_lambda(
@@ -1327,15 +1328,15 @@ class EBSD(KikuchipySignal2D):
         if not return_lazy and register_pbar:
             pbar = ProgressBar()
             pbar.register()
-            
 
         if inplace:
             if not return_lazy:
-                if isinstance(dask_config_kwargs, dict):
-                    if dask_config_kwargs.get("num_workers") is None:
-                        dask_config_kwargs.setdefault("num_workers", 2)
-                elif dask_config_kwargs is None:
-                    dask_config_kwargs = {"num_workers" : 2}
+                if dask_config_kwargs is None:
+                    dask_config_kwargs = dict()
+                
+                if dask_config_kwargs.get("num_workers") is None:
+                    dask_config_kwargs.setdefault("num_workers", 2)
+                
                 with dask.config.set(**dask_config_kwargs):
                     averaged_patterns.store(
                         self.data, 
@@ -1351,7 +1352,7 @@ class EBSD(KikuchipySignal2D):
             if not return_lazy:
                 s_out.compute()
 
-        # Don't sink
+        # Don't sink:
         gc.collect()
 
         if not return_lazy and register_pbar:

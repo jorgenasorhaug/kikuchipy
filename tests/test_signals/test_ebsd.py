@@ -1540,7 +1540,6 @@ class TestAverageNeighbourPatternsEBSD:
         d = dummy_signal.data
         if lazy:
             d = d.compute()
-        print(d)
 
         answer = answer.reshape((3, 3, 3, 3)).astype(np.uint8)
         assert np.allclose(dummy_signal.data, answer)
@@ -1794,7 +1793,6 @@ class TestAverageNonLocalNeighbourPatternsEBSD:
         d = dummy_signal.data
         if lazy:
             d = d.compute()
-        print(d)
         
         answer = answer.reshape((3, 3, 3, 3)).astype(np.uint8)
         assert np.allclose(dummy_signal.data, answer)
