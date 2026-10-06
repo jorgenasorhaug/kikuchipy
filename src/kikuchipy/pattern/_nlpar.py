@@ -205,8 +205,8 @@ def _optimise_lambda(
     return lamopt_values.flatten()
     
 def _average_non_local_neighbour_patterns(
-    patterns: np.ndarray | da.Array,
-    sigma: np.ndarray | da.Array,
+    patterns: np.ndarray,
+    sigma: np.ndarray,
     lamda: int | float,
     window: np.ndarray | Window,
     signal_mask: np.ndarray,
